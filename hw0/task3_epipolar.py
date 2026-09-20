@@ -15,6 +15,13 @@ from hw0_utils import plot_two_views, symmetric_epipolar_distance, write_json
 
 # ------------------------ Task 3: Modify your code below ------------------------
 
+def normalize_points(points):
+    points_mean = np.mean(points, axis=0)
+    shifted_points = points - points_mean
+    points_scaling = np.sqrt(2) / np.mean(np.linalg.norm(shifted_points, axis=1))
+    normalized_points = shifted_points * points_scaling
+    return normalized_points, points_mean, points_scaling
+
 def estimate_fundamental_matrix(matches: np.ndarray) -> np.ndarray:
     """Estimate a rank-two F from rows (u1, v1, u2, v2), N >= 8.
 
@@ -25,8 +32,28 @@ def estimate_fundamental_matrix(matches: np.ndarray) -> np.ndarray:
       4. enforce rank two by zeroing the smallest singular value; and
       5. denormalize and choose a stable scale.
     """
-    del matches
-    return np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]])
+    normalized_1, points_mean_1, points_scaling_1 = normalize_points(matches[:, :2])
+    normalized_2, points_mean_2, points_scaling_2 = normalize_points(matches[:, 2:])
+    solnmatrix = []
+    for i in range(len(matches)):
+        u1, v1 = normalized_1[i]
+        u2, v2 = normalized_2[i]
+        solnmatrix.append([u1 * u2, u2 * v1, u2, v2 * u1, v1 * v2, v2, u1, v1, 1])
+    solnmatrix = np.array(solnmatrix)
+    _, _, vh = np.linalg.svd(solnmatrix)
+    fund_m = vh[-1].reshape(3, 3)
+    u, s, vh = np.linalg.svd(fund_m)
+    s[-1] = 0
+    fund_m = u @ np.diag(s) @ vh
+    dm1 = np.array([[points_scaling_1, 0, -points_scaling_1 * points_mean_1[0]],
+                                      [0, points_scaling_1, -points_scaling_1 * points_mean_1[1]],
+                                      [0, 0, 1]])
+    dm2 = np.array([[points_scaling_2, 0, -points_scaling_2 * points_mean_2[0]],
+                                      [0, points_scaling_2, -points_scaling_2 * points_mean_2[1]],
+                                      [0, 0, 1]])
+    fund_m = dm2.T @ fund_m @ dm1
+    return fund_m / fund_m[2, 2]
+
 
 
 # ------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK --------------------

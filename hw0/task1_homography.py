@@ -62,14 +62,14 @@ TENNIS_UV = np.array(
 # origin and axes defined in the handout, and keep the A--H order unchanged.
 TENNIS_XY = np.array(
     [
-        [0.0, 0.0],  # A: replace
-        [0.0, 0.0],  # B: replace
-        [0.0, 0.0],  # C: replace
-        [0.0, 0.0],  # D: replace
-        [0.0, 0.0],  # E: replace
-        [0.0, 0.0],  # F: replace
-        [0.0, 0.0],  # G: replace
-        [0.0, 0.0],  # H: replace
+        [-5.48, 0.0],
+        [5.48, 0.0],
+        [-5.48, 23.77],
+        [5.48, 23.77],
+        [-4.11, 0.0],
+        [4.11, 0.0],
+        [-4.11, 23.77],
+        [4.11, 23.77],
     ],
     dtype=float,
 )
@@ -85,7 +85,34 @@ def estimate_homography(xy: np.ndarray, uv: np.ndarray) -> np.ndarray:
       3. use SVD to take its right-null-space vector;
       4. reshape, denormalize, and choose a stable matrix scale.
     """
-    return np.eye(3)  # Runnable placeholder: replace with your estimate.
+    xy_centroid = np.mean(xy, axis=0)
+    xy_normalized = xy - xy_centroid
+    xy_scaling = np.mean(np.linalg.norm(xy_normalized, axis=1)) / np.sqrt(2)
+    xy_scaled = xy_normalized / xy_scaling
+    uv_centroid = np.mean(uv, axis=0)
+    uv_normalized = uv - uv_centroid
+    uv_scaling = np.mean(np.linalg.norm(uv_normalized, axis=1)) / np.sqrt(2)
+    uv_scaled = uv_normalized / uv_scaling
+
+    design_matrix = []
+    for (x, y), (u, v) in zip(xy_scaled, uv_scaled):
+        design_matrix.append([-x, -y, -1, 0, 0, 0, u * x, u * y, u])
+        design_matrix.append([0, 0, 0, -x, -y, -1, v * x, v * y, v])
+    design_matrix = np.array(design_matrix)
+
+    _, _, vh = np.linalg.svd(design_matrix)
+    H = vh[-1].reshape(3, 3)
+
+    normalization_matrix = np.array([[1 / xy_scaling, 0, -xy_centroid[0] / xy_scaling],
+                                     [0, 1 / xy_scaling, -xy_centroid[1] / xy_scaling],
+                                     [0, 0, 1]])
+    denormalization_matrix = np.array([[uv_scaling, 0, uv_centroid[0]],
+                                       [0, uv_scaling, uv_centroid[1]],
+                                       [0, 0, 1]])
+    H = denormalization_matrix @ H @ normalization_matrix
+    H = H / H[2, 2]
+    return H
+
 
 
 def logo_to_image_homography(
@@ -100,8 +127,25 @@ def logo_to_image_homography(
     court_to_image. Include the vertical flip because logo pixel y points down
     while court y points up.
     """
+    logo_height, logo_width = logo_shape[:2]
+    logo_corners = np.array(
+        [
+            [0, logo_height - 1], [logo_width - 1, logo_height - 1],
+            [logo_width - 1, 0], [0, 0],
+        ],
+        dtype=float,
+    )
+    court_corners = np.array(
+        [
+            lower_left_xy, [lower_left_xy[0] + size_xy[0], lower_left_xy[1]],
+            [lower_left_xy[0] + size_xy[0], lower_left_xy[1] + size_xy[1]],
+            [lower_left_xy[0], lower_left_xy[1] + size_xy[1]],
+        ],
+        dtype=float,
+    )
+    logo_to_court = estimate_homography(logo_corners, court_corners)
     del logo_shape, lower_left_xy, size_xy
-    return np.asarray(court_to_image, dtype=float)  # Runnable placeholder.
+    return court_to_image @ logo_to_court
 
 
 def alpha_blend(foreground_rgba: np.ndarray, background_rgb: np.ndarray) -> np.ndarray:
@@ -111,8 +155,10 @@ def alpha_blend(foreground_rgba: np.ndarray, background_rgb: np.ndarray) -> np.n
     handout. Alpha is the final channel of foreground_rgba and must blend all
     three foreground RGB channels with the matching background pixel.
     """
+    alpha = foreground_rgba[..., 3:4]
+    blended_rgb = alpha * foreground_rgba[..., :3] + (1 - alpha) * background_rgb
     del foreground_rgba
-    return np.asarray(background_rgb, dtype=float).copy()  # Runnable placeholder.
+    return blended_rgb
 
 
 # ------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK --------------------

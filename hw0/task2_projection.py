@@ -36,11 +36,30 @@ def estimate_projection_matrix(xyz: np.ndarray, uv: np.ndarray) -> np.ndarray:
     design matrix using its matching UV pixel, solve the right null space with
     SVD, reshape to 3 x 4, and choose a stable scale.
     """
-    del xyz, uv
-    intrinsic = np.array([[1000.0, 0.0, 960.0], [0.0, 1000.0, 540.0], [0.0, 0.0, 1.0]])
-    rotation = np.diag([1.0, -1.0, -1.0])
-    camera_center = np.array([14.0, -15.0, 10.0])
-    return intrinsic @ np.column_stack((rotation, -rotation @ camera_center))
+    dlt_matrix = []
+    for point in range(xyz.shape[0]):
+        x, y, z = xyz[point]
+        u, v = uv[point]
+        dlt_matrix.append([-x, -y, -z, -1, 0, 0, 0, 0, u * x, u * y, u * z, u])
+        dlt_matrix.append([0, 0, 0, 0, -x, -y, -z, -1, v * x, v * y, v * z, v])
+    dlt_matrix = np.array(dlt_matrix)
+    _, _, vh = np.linalg.svd(dlt_matrix)
+    projection_matrix = vh[-1].reshape(3, 4)
+    projection_matrix = projection_matrix / projection_matrix[2, 3]
+
+    pose = decompose_projection(projection_matrix)
+    center = pose["C"]
+    print(f"K: {pose['K']}")
+    print(f"R: {pose['R']}")
+    print(f"t: {pose['t']}")
+    print(f"C: {pose['C']}")
+    print(f"Camera center: ({center[0]:.2f}, {center[1]:.2f}, {center[2]:.2f}) m")
+    rT_t = -pose["R"].T @ pose["t"]
+    assert np.allclose(rT_t, center), "R^T t != C"
+    return projection_matrix
+
+
+    
 
 
 # ------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK --------------------
