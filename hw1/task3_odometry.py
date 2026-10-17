@@ -50,8 +50,44 @@ def icp(
     without re-matching, then compare absolute change with the previous value.
     The transform trace begins with identity and includes every update.
     """
-    del target, max_iterations, max_correspondence_distance, trim_fraction, tolerance
-    return np.eye(4), np.empty(0), np.eye(4)[None]
+
+    T_source_to_target = np.eye(4)
+    previous_rmse = np.inf
+    rmse_history = []
+    transform_history = [T_source_to_target.copy()]
+    for iteration in range(max_iterations):
+        transformed_source = transform_points(T_source_to_target, source)
+        source_ids, target_ids, distances = nearest_correspondences(
+            transformed_source, target, max_correspondence_distance
+        )
+        if len(source_ids) < 3:
+            break
+
+        retained_pairs_count = max(3, int(np.ceil(trim_fraction * len(source_ids))))
+        retained_points = np.argsort(distances)[:retained_pairs_count]
+
+        update_transform = fit_rigid_svd(
+            transformed_source[:, source_ids[retained_points]],
+            target[:, target_ids[retained_points]],
+        )
+
+        T_source_to_target = update_transform @ T_source_to_target
+        transform_history.append(T_source_to_target.copy())
+
+        new_source = transform_points(update_transform, transformed_source)
+        new_source_points = new_source[:3, source_ids[retained_points]]
+        transformed_target_points = target[:3, target_ids[retained_points]]
+
+        errors = np.linalg.norm(new_source_points - transformed_target_points, axis=0)
+        rmse = np.sqrt(np.mean(errors ** 2))
+        rmse_history.append(rmse)
+
+        if iteration > 0 and abs(rmse - previous_rmse) < tolerance:
+            break
+
+        previous_rmse = rmse
+
+    return T_source_to_target, np.array(rmse_history), transform_history
 
 
 def chain_relative_poses(relative_transforms: np.ndarray) -> np.ndarray:
@@ -60,7 +96,12 @@ def chain_relative_poses(relative_transforms: np.ndarray) -> np.ndarray:
     Use T_(L_i+1 -> W) = T_(L_i -> W) @ T_(L_i+1 -> L_i).
     Do not add pose components.
     """
-    return np.repeat(np.eye(4)[None], len(relative_transforms) + 1, axis=0)
+    poses = [np.eye(4)]
+    T_Li_to_W = poses[0]
+    for T_Li1_to_Li in relative_transforms:
+        T_Li_to_W = T_Li_to_W @ T_Li1_to_Li
+        poses.append(T_Li_to_W.copy())
+    return np.array(poses)
 
 
 def relative_trajectory_error(
@@ -74,9 +115,19 @@ def relative_trajectory_error(
     T_(L_i+delta -> W) for the estimate and reference, then measure the error
     transform using the equations in the handout.
     """
-    del ground_truth_poses
-    count = max(len(estimated_poses) - delta, 0)
-    return np.zeros(count), np.zeros(count)
+    delta_t_cap = np.linalg.inv(estimated_poses[:-delta]) @ estimated_poses[delta:]
+    delta_t = np.linalg.inv(ground_truth_poses[:-delta]) @ ground_truth_poses[delta:]
+    delta_error = np.linalg.inv(delta_t) @ delta_t_cap
+    translation_error = np.linalg.norm(delta_error[:, :3, 3], axis=1)
+
+    def rotation_error_degrees_local(R_err: np.ndarray) -> np.ndarray:
+        cos_theta = (np.trace(R_err, axis1=1, axis2=2) - 1) / 2
+        cos_theta = np.clip(cos_theta, -1.0, 1.0)
+        theta_rad = np.arccos(cos_theta)
+        return np.degrees(theta_rad)
+
+    rotation_error = rotation_error_degrees_local(delta_error[:, :3, :3])
+    return translation_error, rotation_error
 
 
 # ------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK --------------------

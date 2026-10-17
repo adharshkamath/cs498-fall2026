@@ -34,8 +34,26 @@ def fit_rigid_svd(source: np.ndarray, target: np.ndarray) -> np.ndarray:
     ``source`` and ``target`` are homogeneous [4, N] point matrices. Lecture
     notation is used directly: P_target = T_source_to_target @ P_source.
     """
-    del target
-    return np.eye(4)
+    # Center the source and target points
+    source_centroid = np.mean(source[:3, :], axis=1, keepdims=True)
+    source_centered = source[:3, :] - source_centroid
+    target_centroid = np.mean(target[:3, :], axis=1, keepdims=True)
+    target_centered = target[:3, :] - target_centroid
+
+    H = source_centered @ target_centered.T
+    U, _, Vt = np.linalg.svd(H)
+    D = np.diag([1, 1, np.linalg.det(Vt.T @ U.T)])
+    R = Vt.T @ D @ U.T
+
+    # Testing why det(R) = -1 is not a valid 3D rotation
+    # R = Vt.T @ U.T
+
+    t = target_centroid - R @ source_centroid
+
+    T_source_to_target = np.eye(4)
+    T_source_to_target[:3, :3] = R
+    T_source_to_target[:3, 3] = t.flatten()
+    return T_source_to_target
 
 
 def nearest_correspondences(
@@ -48,12 +66,17 @@ def nearest_correspondences(
     Transpose xyz to [N, 3] only for the SciPy cKDTree boundary, query one
     neighbor per source column, and retain distances <= ``max_distance``.
     """
-    count = min(source.shape[1], target.shape[1])
-    source_ids = np.arange(count)
-    target_ids = np.arange(count)
-    distances = np.linalg.norm(source[:3, :count] - target[:3, :count], axis=0)
-    keep = distances <= max_distance
-    return source_ids[keep], target_ids[keep], distances[keep]
+    tree = cKDTree(target[:3, :].T)
+    dist, idx = tree.query(source[:3, :].T, k=1)
+
+    source_ids = np.arange(source.shape[1])
+    target_ids = idx
+    distances = dist
+    source_ids = source_ids[distances <= max_distance]
+    target_ids = target_ids[distances <= max_distance]
+    distances = distances[distances <= max_distance]
+
+    return source_ids, target_ids, distances
 
 
 # ------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK --------------------

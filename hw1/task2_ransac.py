@@ -42,8 +42,48 @@ def ransac_rigid(
     Keep the first hypothesis on ties; return identity/all-false if none has
     three inliers. Recompute the final mask after refitting (residual <= threshold).
     """
-    del target, threshold, max_trials, rng
-    return np.eye(4), np.zeros(source.shape[1], dtype=bool)
+
+    three_point_tuples = np.empty((max_trials, 3), dtype=int)
+    for i in range(max_trials):
+        sample_indices = rng.choice(source.shape[1], size=3, replace=False)
+        three_point_tuples[i] = sample_indices
+    collinear = np.zeros(max_trials, dtype=bool)
+    for i in range(max_trials):
+        p1 = source[:3, three_point_tuples[i][0]]
+        p2 = source[:3, three_point_tuples[i][1]]
+        p3 = source[:3, three_point_tuples[i][2]]
+        if np.linalg.norm(np.cross(p2 - p1, p3 - p1)) < 1e-8:
+            collinear[i] = True
+
+        p1 = target[:3, three_point_tuples[i][0]]
+        p2 = target[:3, three_point_tuples[i][1]]
+        p3 = target[:3, three_point_tuples[i][2]]
+        if np.linalg.norm(np.cross(p2 - p1, p3 - p1)) < 1e-8:
+            collinear[i] = True
+
+    samples = three_point_tuples[~collinear]
+    if len(samples) == 0:
+        return np.eye(4), np.zeros(source.shape[1], dtype=bool)
+    best_inliers = np.zeros(source.shape[1], dtype=bool)
+    for i in range(samples.shape[0]):
+        sample_source = source[:, samples[i]]
+        sample_target = target[:, samples[i]]
+        transformed_source = transform_points(fit_rigid_svd(sample_source, sample_target), source)
+        residuals = np.linalg.norm(transformed_source[:3] - target[:3], axis=0)
+        inliers = residuals <= threshold
+        if inliers.sum() > best_inliers.sum():
+            best_inliers = inliers
+
+    if best_inliers.sum() < 3:
+        return np.eye(4), np.zeros(source.shape[1], dtype=bool)
+
+    final_source = source[:, best_inliers]
+    final_target = target[:, best_inliers]
+    final_transform = fit_rigid_svd(final_source, final_target)
+    final_transformed_source = transform_points(final_transform, source)
+    final_residuals = np.linalg.norm(final_transformed_source[:3] - target[:3], axis=0)
+    final_inliers = final_residuals <= threshold
+    return final_transform, final_inliers
 
 
 # ------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK --------------------

@@ -38,9 +38,9 @@ def points_to_voxels(
     ``origin`` is [3]. Divide xyz by w, transpose to [N, 3], use
     ``torch.floor``, cast to ``torch.long``, and do not clip.
     """
-    return torch.zeros(
-        (points.shape[1], 3), dtype=torch.long, device=points.device
-    )
+    translated = (points[:3] / points[3:4]).T - origin
+    voxels = torch.floor(translated / voxel_size).to(torch.long)
+    return voxels
 
 
 def fuse_voxel_evidence(
@@ -59,17 +59,20 @@ def fuse_voxel_evidence(
     not let a later observation overwrite earlier evidence.
     """
     shape = torch.tensor(grid_shape, dtype=torch.long, device=voxel_indices.device)
-    valid = ((voxel_indices >= 0) & (voxel_indices < shape)).all(dim=1)
-    coordinates, inverse = torch.unique(
-        voxel_indices[valid], dim=0, sorted=True, return_inverse=True
+    valid = (voxel_indices >= 0).all(dim=1) & (voxel_indices < shape).all(dim=1)
+    voxel_indices = voxel_indices[valid]
+    raw_logits = raw_logits[valid]
+    voxels, indices, counts = torch.unique(
+        voxel_indices, dim=0, sorted=True, return_inverse=True, return_counts=True
     )
-    counts = torch.bincount(inverse, minlength=len(coordinates))
+    logits_float = raw_logits.to(torch.float64)
     log_evidence = torch.zeros(
-        (len(coordinates), raw_logits.shape[1]),
-        dtype=torch.float64,
-        device=raw_logits.device,
+        (len(voxels), logits_float.shape[1]), dtype=torch.float64, device=logits_float.device,
     )
-    return coordinates, counts > 0, log_evidence, counts
+    log_softmax = torch.log_softmax(logits_float, dim=1)
+    log_evidence.index_add_(0, indices, log_softmax)
+
+    return voxels, (counts > 0).to(torch.int64), log_evidence, counts
 
 
 # ------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK --------------------
