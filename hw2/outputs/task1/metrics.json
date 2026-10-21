@@ -1,0 +1,10 @@
+{
+  "perfect_prediction_miou": 1.0,
+  "perfect_prediction_iou": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ]
+}

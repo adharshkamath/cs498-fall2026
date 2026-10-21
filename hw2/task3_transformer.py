@@ -47,7 +47,15 @@ class SelfAttention(nn.Module):
         https://arxiv.org/abs/1706.03762.
         """
         # ----------- SelfAttention.forward: INSERT YOUR CODE BELOW -----------
-        return torch.zeros_like(features)
+        batch, points, _ = features.shape
+        qkv = self.qkv(features)  
+        qkv = qkv.view(batch, points, self.num_heads, 3 * self.head_width)
+        qkv = qkv.permute(0, 2, 1, 3)
+        q, k, v = torch.chunk(qkv, 3, dim=-1)
+        attn_output = torch.nn.functional.scaled_dot_product_attention(q, k, v, dropout_p=self.dropout, is_causal=False)
+        attn_output = attn_output.permute(0, 2, 1, 3)
+        attn_output = attn_output.reshape(batch, points, self.num_heads * self.head_width)
+        return self.output(attn_output)
         # ------------ DO NOT MODIFY CODE OUTSIDE THIS BLOCK --------------
 
 
@@ -96,8 +104,15 @@ class TransformerSegmenter(nn.Module):
         Preserve point order and return raw logits, not probabilities.
         """
         # ------- TransformerSegmenter.forward: INSERT YOUR CODE BELOW -------
-        empty = xyz.new_zeros((*xyz.shape[:2], self.width))
-        return self.head(empty)
+        xyz, rgb = xyz.to(torch.float32), rgb.to(torch.float32)
+        concatted = torch.cat((xyz, rgb), dim=-1)
+        input_projection = self.input_projection(concatted)
+        position_features = self.position_mlp(xyz)
+        features = input_projection + position_features
+        for block in self.blocks:
+            features = block(features)
+        res =  self.head(features)
+        return res
         # ------------ DO NOT MODIFY CODE OUTSIDE THIS BLOCK --------------
 
 
@@ -114,7 +129,10 @@ def segmentation_loss(logits, labels, class_weights):
     Flatten only the batch and point axes before calling F.cross_entropy.
     """
     # ------------ segmentation_loss: INSERT YOUR CODE BELOW ------------
-    return F.cross_entropy(logits.flatten(0, 1), labels.flatten())
+    flattened_logits = logits.view(-1, logits.shape[-1])
+    flattened_labels = labels.view(-1)
+    loss = F.cross_entropy(flattened_logits, flattened_labels, weight=class_weights, reduction="mean")
+    return loss
     # ------------ DO NOT MODIFY CODE OUTSIDE THIS BLOCK --------------
 
 

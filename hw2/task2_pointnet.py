@@ -52,8 +52,13 @@ class PointNetSegmenter(nn.Module):
         """
         # ---------------- Task 2: INSERT YOUR CODE BELOW -----------------
         batch, points, _ = xyz.shape
-        empty = xyz.new_zeros((batch, 512, points))
-        return self.classifier(empty).transpose(1, 2)
+        features = torch.cat((xyz, rgb), dim=-1).transpose(1, 2).to(torch.float32)
+        mlp_output = self.point_mlp(features)
+        global_feature = torch.max(mlp_output, dim=2, keepdim=True)[0]
+        global_feature_repeated = global_feature.repeat(1, 1, points)
+        combined_features = torch.cat((mlp_output, global_feature_repeated), dim=1)
+        logits = self.classifier(combined_features).transpose(1, 2)
+        return logits
         # ------------- DO NOT MODIFY CODE OUTSIDE THIS BLOCK -------------
 
 

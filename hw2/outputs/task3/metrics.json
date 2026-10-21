@@ -1,0 +1,17 @@
+{
+  "validation_miou": 0.7340104606432926,
+  "validation_loss": 0.45210268129158576,
+  "overall_point_accuracy": 0.865863037109375,
+  "per_class_iou": [
+    0.7866437241860451,
+    0.7933300968664426,
+    0.5407923044864213,
+    0.7879230495190594,
+    0.7613631281584949
+  ],
+  "epochs": 100,
+  "best_epoch": 88,
+  "parameter_count": 458405,
+  "training_time_seconds": 221.32702799118124,
+  "checkpoint_selection": "highest validation_miou"
+}

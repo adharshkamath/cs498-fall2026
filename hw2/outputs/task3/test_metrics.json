@@ -1,0 +1,14 @@
+{
+  "split": "test",
+  "checkpoint_selected_by": "highest validation_miou",
+  "test_miou": 0.7242248793997078,
+  "test_loss": 0.4847897104129306,
+  "overall_point_accuracy": 0.8656331380208333,
+  "per_class_iou": [
+    0.7864725963161646,
+    0.8008576989988342,
+    0.551094890510949,
+    0.7938937007285075,
+    0.6888055104440836
+  ]
+}
