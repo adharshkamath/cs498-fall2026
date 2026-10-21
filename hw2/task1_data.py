@@ -19,7 +19,14 @@ from hw2_utils import PART_NAMES, load_split, plot_point_clouds, write_json
 def augment_points(points, rng):
     """Apply a random z rotation, scale change, and coordinate noise."""
     # ---------------- Task 1B: INSERT YOUR CODE BELOW ----------------
-    return points.copy()
+    rotation = rng.uniform(0, 2 * np.pi)
+    scale = rng.uniform(0.5, 1.5)
+    jitter = rng.normal(0, 0.02, size=points.shape)
+    rotation_matrix = np.array([[np.cos(rotation), -np.sin(rotation), 0],
+                                [np.sin(rotation), np.cos(rotation), 0],
+                                [0, 0, 1]])
+    augmented_points = points @ rotation_matrix.T * scale + jitter
+    return augmented_points
     # ------------ DO NOT MODIFY CODE OUTSIDE THIS BLOCK --------------
 
 
@@ -31,7 +38,12 @@ def augment_points(points, rng):
 def compute_confusion_matrix(prediction, target, num_classes):
     """Return a matrix with ground-truth rows and prediction columns."""
     # ---------------- Task 1C: INSERT YOUR CODE BELOW ----------------
-    return np.zeros((num_classes, num_classes), dtype=np.int64)
+    flattened = prediction.flatten() 
+    flattened_target = target.flatten()
+    confusion_matrix = np.zeros((num_classes, num_classes), dtype=int)
+    for t, p in zip(flattened_target, flattened):
+        confusion_matrix[t, p] += 1
+    return confusion_matrix
     # ------------ DO NOT MODIFY CODE OUTSIDE THIS BLOCK --------------
 
 
@@ -43,7 +55,14 @@ def compute_confusion_matrix(prediction, target, num_classes):
 def iou_from_confusion(confusion):
     """Return one IoU per class; use NaN when the union is zero."""
     # ---------------- Task 1C: INSERT YOUR CODE BELOW ----------------
-    return np.zeros(len(confusion), dtype=np.float64)
+    intersection = np.diag(confusion)
+    ground_truth_count = confusion.sum(axis=1)
+    predicted_count = confusion.sum(axis=0)
+    union = ground_truth_count + predicted_count - intersection
+    iou = union.copy().astype(float)
+    iou[union != 0] = intersection[union != 0] / union[union != 0]
+    iou[union == 0] = np.nan
+    return iou
     # ------------ DO NOT MODIFY CODE OUTSIDE THIS BLOCK --------------
 
 
