@@ -23,7 +23,47 @@ def rasterize_points(points: np.ndarray) -> np.ndarray:
     Do not loop over BEV cells.
     """
     # ------------------------ Task 1 Modify your code below ---------------------
-    return np.zeros((4, GRID_H, GRID_W), dtype=np.float32)
+    roi_x, roi_y, roi_z = (0, 70.4), (-40, 40), (-3, 1)
+    # Filter points within the region of interest
+    mask = (
+        (points[:, 0] >= roi_x[0]) & (points[:, 0] <= roi_x[1]) &
+        (points[:, 1] >= roi_y[0]) & (points[:, 1] <= roi_y[1]) &
+        (points[:, 2] >= roi_z[0]) & (points[:, 2] <= roi_z[1])
+    )
+    filtered_points = points[mask]
+
+    grid_indices = metric_to_grid(x=filtered_points[:, 0], y=filtered_points[:, 1])
+    rows, cols, _ = grid_indices
+    grid_indices = rows * GRID_W + cols
+    heights = filtered_points[:, 2].copy()
+    heights_normalized = np.clip((heights - Z_MIN) / (Z_MAX - Z_MIN), 0, 1)
+
+
+    max_height = np.zeros(GRID_H * GRID_W, dtype=np.float32)
+    np.maximum.at(max_height, grid_indices, heights_normalized)
+
+    sum_height = np.zeros(GRID_H * GRID_W, dtype=np.float32)
+    np.add.at(sum_height, grid_indices, heights_normalized)
+    mean_height = np.zeros(GRID_H * GRID_W, dtype=np.float32)
+    counts = np.bincount(grid_indices, minlength=GRID_H * GRID_W)
+    mean_height[counts > 0] = sum_height[counts > 0] / counts[counts > 0]
+    mean_height = np.clip(mean_height, 0, 1)
+
+    intensities = filtered_points[:, 3].copy()
+    intensities_normalized = np.clip(intensities, 0, 1)
+    sum_intensity = np.zeros(GRID_H * GRID_W, dtype=np.float32)
+    np.add.at(sum_intensity, grid_indices, intensities_normalized)
+    mean_intensity = np.zeros(GRID_H * GRID_W, dtype=np.float32)
+    mean_intensity[counts > 0] = sum_intensity[counts > 0] / counts[counts > 0]
+    mean_intensity = np.clip(mean_intensity, 0, 1)
+
+    log_density = np.zeros(GRID_H * GRID_W, dtype=np.float32)
+    log_density[counts > 0] = np.log(1 + counts[counts > 0]) / np.log(65)
+    log_density = np.clip(log_density, 0, 1)
+
+    bev = np.stack([max_height, mean_height, mean_intensity, log_density], axis=0)
+    bev = bev.reshape(4, GRID_H, GRID_W)
+    return bev 
     # ---------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK ----------------
 
 
