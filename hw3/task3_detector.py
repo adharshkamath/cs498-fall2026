@@ -127,14 +127,14 @@ def regression_l1(prediction_map, target, indices, mask):
     """
     # ----------------------- Task 3C Modify your code below -----------------
     pred_map = gather_map(prediction_map, indices)
-    target_masked = target[mask]
-    pred_masked = pred_map[mask]
+    pred_masked = pred_map[mask.bool()]
+    target_masked = target[mask.bool()]
     num_valid = mask.sum()
     if num_valid > 0:
         loss = F.l1_loss(pred_masked, target_masked, reduction='sum')
         return loss / num_valid
     else:
-        return torch.tensor(0.0, device=prediction_map.device)
+        return prediction_map.sum() * 0.0
     # ---------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK ----------------
 
 

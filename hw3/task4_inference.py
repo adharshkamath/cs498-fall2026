@@ -23,7 +23,11 @@ from hw3_utils import (
 def suppress_nonmaxima(heatmap: torch.Tensor, kernel: int = 3) -> torch.Tensor:
     """Keep only local maxima in a `[B,C,H,W]` probability heatmap."""
     # ----------------------- Task 4A Modify your code below -----------------
-    return heatmap
+    max_pool_filter = torch.nn.MaxPool2d(kernel_size=kernel, stride=1, padding=1)
+    heatmap_sigmoid = torch.sigmoid(heatmap)
+    heatmap_max = max_pool_filter(heatmap_sigmoid)
+    suppressed_heatmap = heatmap_sigmoid * (heatmap_sigmoid == heatmap_max)
+    return suppressed_heatmap
     # ---------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK ----------------
 
 
@@ -51,13 +55,48 @@ def decode_predictions(predictions: dict[str, torch.Tensor], score_threshold=0.0
     yaw with `atan2(sin,cos)`. Finally apply score filtering and rotated NMS.
     """
     # ----------------------- Task 4B Modify your code below -----------------
-    batch = predictions["heatmap"].shape[0]
-    return [
-        {"boxes": np.zeros((0, 7), dtype=np.float32),
-         "scores": np.zeros(0, dtype=np.float32),
-         "classes": np.zeros(0, dtype=np.int64)}
-        for _ in range(batch)
-    ]
+    predictions_heatmap = torch.sigmoid(predictions["heatmap"])
+    prediction_heatmap = suppress_nonmaxima(predictions_heatmap)
+    regression = predictions["reg"]
+    height = predictions["height"]
+    dims = predictions["dims"]
+    rot = predictions["rot"]
+    scores, flat_indices, classes, rows, columns = topk_centers(prediction_heatmap, topk)
+    u = columns.unsqueeze(-1)
+    v = rows.unsqueeze(-1)
+    duv = gather_map(regression, flat_indices)
+    heights = gather_map(height, flat_indices)
+    dimensions = gather_map(dims, flat_indices)
+    sin = gather_map(rot[:, 0:1], flat_indices)
+    cos = gather_map(rot[:, 1:2], flat_indices)
+    x = (u + duv[..., 0:1]) * OUTPUT_RESOLUTION + X_MIN
+    y = (OUT_H - (v + duv[..., 1:2])) * OUTPUT_RESOLUTION + Y_MIN
+    z = heights
+    widths_lengths_heights = torch.exp(dimensions)
+    lengths, widths, heights = widths_lengths_heights[..., 0:1], widths_lengths_heights[..., 1:2], widths_lengths_heights[..., 2:3]
+    yaws = torch.atan2(sin, cos)
+
+    boxes = torch.cat((x, y, z, lengths, widths, heights, yaws), dim=-1)
+
+    res = []
+    for batch in range(boxes.shape[0]):
+        boxes_batch = boxes[batch]
+        scores_batch = scores[batch]
+        classes_batch = classes[batch]
+        keep = scores_batch >= score_threshold
+        boxes_batch = boxes_batch[keep]
+        scores_batch = scores_batch[keep]
+        classes_batch = classes_batch[keep]
+        keep_indices = rotated_nms(boxes_batch.detach().cpu().numpy(), scores_batch.detach().cpu().numpy())
+        boxes_batch = boxes_batch[keep_indices]
+        scores_batch = scores_batch[keep_indices]
+        classes_batch = classes_batch[keep_indices]
+        res.append({
+            "boxes": boxes_batch.cpu().numpy(),
+            "scores": scores_batch.cpu().numpy(),
+            "classes": classes_batch.cpu().numpy(),
+        })
+    return res
     # ---------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK ----------------
 
 
