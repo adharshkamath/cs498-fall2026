@@ -1,0 +1,13 @@
+{
+  "frame_id": "7",
+  "heatmap_shape": [
+    1,
+    100,
+    88
+  ],
+  "heatmap_max": 1.0,
+  "ground_truth_boxes": 3,
+  "encoded_boxes": 3,
+  "decoded_boxes": 3,
+  "mean_center_error_m": 3.742218495972338e-06
+}

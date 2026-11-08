@@ -1,0 +1,5 @@
+{
+  "score_threshold": 0.01,
+  "source_split": "val",
+  "checkpoint_sha256": "eab7433a6d3cb3e2b304b09ea1af5e4a84e64f70085f88ed89c017f1b8b62a64"
+}
