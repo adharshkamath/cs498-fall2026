@@ -22,14 +22,37 @@ def encode_targets(boxes: np.ndarray) -> dict[str, np.ndarray]:
     cos(yaw))`. The mask marks valid rows among `MAX_OBJECTS` slots.
     """
     # ------------------------ Task 2A Modify your code below --------------------
+
+    # Assuming we are expected to return 4 objects
+    heatmap = np.zeros((1, 100, 88), dtype=np.float32)
+    indices = np.zeros((MAX_OBJECTS), dtype=np.int64)
+    regressions = np.zeros((MAX_OBJECTS, 8), dtype=np.float32)
+    mask = np.zeros((MAX_OBJECTS,), dtype=np.bool_)
+
+    for idx, box in enumerate(boxes):
+        u, v, _ = metric_to_output_grid(box[0], box[1])
+        # u_center = (box[0] - x_min) / OUTPUT_RESOLUTION
+        # v_center = OUT_H - ((box[1] - y_min) / OUTPUT_RESOLUTION)
+        center_int = np.array([np.floor(u), np.floor(v)]).astype(np.int64)
+        radius = gaussian_radius(box[5] / OUTPUT_RESOLUTION, box[4] / OUTPUT_RESOLUTION)
+        radius = max(0, np.floor(radius))
+        draw_gaussian(heatmap[0], center_int, radius)
+
+        indices[idx] = center_int[1] * OUT_W + center_int[0]
+        du = u - center_int[0]
+        dv = v - center_int[1]
+        z = box[2]
+        log_dims = np.log(box[3:6])
+        sin_yaw = np.sin(box[6])
+        cos_yaw = np.cos(box[6])
+        regressions[idx] = np.array([du, dv, z, *log_dims, sin_yaw, cos_yaw])
+        mask[idx] = True
+
     return {
-        "heatmap": np.zeros((NUM_CLASSES, OUT_H, OUT_W), dtype=np.float32),
-        "inds": np.zeros(MAX_OBJECTS, dtype=np.int64),
-        "mask": np.zeros(MAX_OBJECTS, dtype=np.uint8),
-        "reg": np.zeros((MAX_OBJECTS, 2), dtype=np.float32),
-        "height": np.zeros((MAX_OBJECTS, 1), dtype=np.float32),
-        "dims": np.zeros((MAX_OBJECTS, 3), dtype=np.float32),
-        "rot": np.zeros((MAX_OBJECTS, 2), dtype=np.float32),
+        "heatmap": heatmap,
+        "indices": indices,
+        "regressions": regressions,
+        "mask": mask,
     }
     # ---------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK ----------------
 
@@ -37,7 +60,31 @@ def encode_targets(boxes: np.ndarray) -> dict[str, np.ndarray]:
 def decode_targets(targets: dict[str, np.ndarray]) -> np.ndarray:
     """Invert `encode_targets` and return decoded metric boxes `[M,7]`."""
     # ------------------------ Task 2B Modify your code below --------------------
-    return np.zeros((0, 7), dtype=np.float32)
+    heatmap = targets["heatmap"]
+    indices = targets["indices"]
+    regressions = targets["regressions"]
+    mask = targets["mask"]
+
+    decoded_boxes = []
+    for idx in range(MAX_OBJECTS):
+        if not mask[idx]:
+            continue
+        index = indices[idx]
+        u_center = index % OUT_W
+        v_center = index // OUT_W
+        du, dv, z, log_length, log_width, log_height, sin_yaw, cos_yaw = regressions[idx]
+        u_center += du
+        v_center += dv
+        x, y = output_grid_to_metric(u_center, v_center)
+        length = np.exp(log_length)
+        width = np.exp(log_width)
+        height = np.exp(log_height)
+        yaw = np.arctan2(sin_yaw, cos_yaw)
+        decoded_boxes.append([x, y, z, length, width, height, yaw])
+
+    return np.array(decoded_boxes, dtype=np.float32)
+
+
     # ---------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK ----------------
 
 

@@ -75,7 +75,17 @@ class CenterDetector(nn.Module):
         Then apply every prediction head to the final `[B,128,100,88]` map.
         """
         # ----------------------- Task 3A Modify your code below -----------------
-        features = bev.new_zeros((bev.shape[0], 128, bev.shape[2] // 4, bev.shape[3] // 4))
+        
+        stem_3_3 = self.stem(bev)
+        first_res_block = self.block1(stem_3_3)
+        second_res_block = self.block2(first_res_block)
+        res_block = self.down1(second_res_block)
+        third_res_block = self.block3(res_block)
+        fourth_res_block = self.block4(third_res_block)
+        down2_res_block = self.down2(fourth_res_block)
+        fifth_res_block = self.block5(down2_res_block)
+        features = self.block6(fifth_res_block)
+
         return {name: head(features) for name, head in self.heads.items()}
         # ---------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK ----------------
 
@@ -88,7 +98,24 @@ def focal_loss(probability, target):
     number of positive centers, or return only the negative term if none exist.
     """
     # ----------------------- Task 3B Modify your code below -----------------
-    return F.binary_cross_entropy(probability, target)
+
+    def pixel_loss(pred, target):
+        if target == 1:
+            return (1 - pred) ** 2 * torch.log(pred)
+        else:
+            return (1 - target) ** 4 * (pred ** 2) * torch.log(1 - pred)
+
+    probs = probability.flatten()
+    targets = target.flatten()
+    pos_mask = targets == 1
+    num_pos = pos_mask.sum()
+    if num_pos > 0:
+        pos_loss = pixel_loss(probs[pos_mask], targets[pos_mask]).sum()
+        neg_loss = pixel_loss(probs[~pos_mask], targets[~pos_mask]).sum()
+        return -(pos_loss + neg_loss) / max(num_pos, 1)
+    else:
+        neg_loss = pixel_loss(probs, targets).sum()
+        return -neg_loss
     # ---------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK ----------------
 
 
@@ -100,7 +127,15 @@ def regression_l1(prediction_map, target, indices, mask):
     number of valid objects (not by the number of regression channels).
     """
     # ----------------------- Task 3C Modify your code below -----------------
-    return (prediction_map * 0.0).sum()
+    pred_map = gather_map(prediction_map, indices)
+    target_masked = target[mask]
+    pred_masked = pred_map[mask]
+    num_valid = mask.sum()
+    if num_valid > 0:
+        loss = F.l1_loss(pred_masked, target_masked, reduction='sum')
+        return loss / num_valid
+    else:
+        return torch.tensor(0.0, device=prediction_map.device)
     # ---------------------- DO NOT MODIFY CODE OUTSIDE THE BLOCK ----------------
 
 
