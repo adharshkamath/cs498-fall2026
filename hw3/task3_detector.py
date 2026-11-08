@@ -100,10 +100,9 @@ def focal_loss(probability, target):
     # ----------------------- Task 3B Modify your code below -----------------
 
     def pixel_loss(pred, target):
-        if target == 1:
-            return (1 - pred) ** 2 * torch.log(pred)
-        else:
-            return (1 - target) ** 4 * (pred ** 2) * torch.log(1 - pred)
+        pos_loss = (1 - pred) ** 2 * torch.log(pred + 1e-6)
+        neg_loss = (1 - target) ** 4 * pred ** 2 * torch.log(1 - pred + 1e-6)
+        return torch.where(target == 1, pos_loss, neg_loss)
 
     probs = probability.flatten()
     targets = target.flatten()
