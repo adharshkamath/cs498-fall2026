@@ -42,8 +42,7 @@ def rasterize_points(points: np.ndarray) -> np.ndarray:
     max_height = np.zeros(GRID_H * GRID_W, dtype=np.float32)
     np.maximum.at(max_height, grid_indices, heights_normalized)
 
-    sum_height = np.zeros(GRID_H * GRID_W, dtype=np.float32)
-    np.add.at(sum_height, grid_indices, heights_normalized)
+    sum_height = np.bincount(grid_indices, weights=heights_normalized, minlength=GRID_H * GRID_W)
     mean_height = np.zeros(GRID_H * GRID_W, dtype=np.float32)
     counts = np.bincount(grid_indices, minlength=GRID_H * GRID_W)
     mean_height[counts > 0] = sum_height[counts > 0] / counts[counts > 0]
