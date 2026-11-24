@@ -101,8 +101,22 @@ class TinyNeRF(nn.Module):
         # combine a learned point feature with encoded viewdirs for RGB.
         # Runnable placeholder: preserve the public shape and a gradient path
         # so later scripts fail visibly on quality rather than dimensions.
-        zero = self.sigma_head.weight.sum() * 0.0
-        return x.new_zeros((*x.shape[:-1], 4)) + zero
+        output = x
+        for i, layer in enumerate(self.pts_layers):
+            if i == self.skip_layer and i > 0:
+                output = torch.cat([output, x], dim=-1)
+            output = torch.relu(layer(output))
+        
+        sigma = self.sigma_head(output)
+        if self.use_viewdirs:
+            feature = self.feature_head(output)
+            view_input = torch.cat([feature, viewdirs], dim=-1)
+            view_output = self.view_layer(view_input)
+            view_output = torch.relu(view_output)
+            rgb = self.rgb_head(view_output)
+        else:
+            rgb = self.rgb_head(output)
+        return torch.cat([rgb, sigma], dim=-1)
         # ======= DO NOT MODIFY CODE OUTSIDE THIS BLOCK =======
 
 
@@ -148,6 +162,18 @@ def sample_along_rays(
     z_vals = torch.linspace(near, far, num_samples, device=rays_o.device, dtype=rays_o.dtype).expand(
         num_rays, num_samples
     )
+    if perturb:
+        mids = 0.5 * (z_vals[:, :-1] + z_vals[:, 1:])
+        upper = torch.cat([mids, z_vals[:, -1:]], dim=-1)
+        lower = torch.cat([z_vals[:, :1], mids], dim=-1)
+        t_rand = torch.rand(z_vals.shape, device=rays_o.device, dtype=rays_o.dtype)
+        z_vals = lower + (upper - lower) * t_rand
+
+    z_vals = z_vals.to(rays_o.dtype)
+    z_vals = z_vals.to(rays_o.device)
+    for i in range(num_rays):
+        if z_vals[i, 0] < near or z_vals[i, -1] > far:
+            raise ValueError(f"Sampled depths out of bounds for ray {i}: {z_vals[i]}")
     pts = rays_o[:, None, :] + rays_d[:, None, :] * z_vals[..., None]
     return pts, z_vals
     # ======= DO NOT MODIFY CODE OUTSIDE THIS BLOCK =======
@@ -199,11 +225,25 @@ def raw_to_outputs(
     # in the handout. Do not normalize weights to sum to one. Avoid a Python
     # loop over samples; torch.cumprod can form the exclusive prefix product.
     sample_rgb = torch.sigmoid(raw[..., :3])
-    weights = torch.zeros_like(z_vals)
-    rgb_map = sample_rgb.mean(dim=1)
-    depth_map = torch.zeros(raw.shape[0], device=raw.device, dtype=raw.dtype)
-    acc_map = torch.zeros(raw.shape[0], device=raw.device, dtype=raw.dtype)
-    return {"rgb": rgb_map, "depth": depth_map, "acc": acc_map, "weights": weights, "sample_rgb": sample_rgb}
+    density = torch.relu(raw[..., 3])
+    print(sample_rgb.shape, density.shape, z_vals.shape, rays_d.shape)
+
+    delta_n_s = (z_vals[..., 1:] - z_vals[..., :-1]) 
+    large_final_interval = torch.tensor([1e10], dtype=delta_n_s.dtype, device=delta_n_s.device).expand(delta_n_s.shape[0], 1)
+    delta_n_s = torch.cat([delta_n_s, large_final_interval], dim=-1)
+    direction_norms = torch.linalg.norm(rays_d, dim=-1, keepdim=True).clamp_min(1.0e-8)
+    delta_n_s = delta_n_s * direction_norms
+    alpha = 1.0 - torch.exp(-density * delta_n_s)
+    small_num = 1e-10
+    alpha_prepended = torch.cat([torch.ones_like(alpha[..., :1]), 1.0 - alpha + small_num], dim=-1)
+    T_n_s = torch.cumprod(alpha_prepended, dim=-1)[..., :-1]
+    w_n_s = T_n_s * alpha
+    rgb = torch.sum(w_n_s[..., None] * sample_rgb, dim=-2)
+    depth = torch.sum(w_n_s * z_vals, dim=-1)
+    acc = torch.sum(w_n_s, dim=-1)
+    if white_background:
+        rgb = rgb + (1.0 - acc[..., None])
+    return {"rgb": rgb, "depth": depth, "acc": acc, "weights": w_n_s, "sample_rgb": sample_rgb}
     # ======= DO NOT MODIFY CODE OUTSIDE THIS BLOCK =======
 
 
