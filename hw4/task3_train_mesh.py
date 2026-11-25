@@ -386,7 +386,28 @@ def build_density_grid(
     #   5. Use any fixed normalized viewing direction for the RGB branch.
     #   6. Read raw[..., 3], apply the same nonnegative density activation as
     #      the renderer, and reshape to (R, R, R).
-    return torch.zeros((resolution, resolution, resolution), device=device)
+    if resolution < 2 or chunk_size < 0:
+        raise ValueError("resolution must be >= 2 and chunk_size must be nonnegative")
+    dtype = next(model.parameters()).dtype if next(model.parameters(), None) is not None else torch.float32
+    coordinates = torch.linspace(bounds[0], bounds[1], resolution, device=device, dtype=dtype)
+    meshgrid = torch.meshgrid(coordinates, coordinates, coordinates, indexing="ij")
+    stacked_flattened = torch.stack(meshgrid, dim=-1).reshape(-1, 3)
+    model_training = model.training
+    model.eval()
+    with torch.no_grad():
+        densities = []
+        for start in range(0, stacked_flattened.shape[0], chunk_size):
+            chunk_points = stacked_flattened[start:start + chunk_size]
+            encoded_points = positional_encoding(chunk_points, int(cfg["num_freqs_xyz"]), include_input=True)
+            fixed_view_dir = torch.tensor([[0.0, 0.0, 1.0]], device=device, dtype=dtype).expand(encoded_points.shape[0], -1)
+            encoded_view_dir = positional_encoding(fixed_view_dir, int(cfg["num_freqs_dir"]), include_input=True)
+            raw_output = model(encoded_points, encoded_view_dir)
+            density = torch.relu(raw_output[..., 3])
+            densities.append(density)
+
+    reshaped_density = torch.cat(densities, dim=0).reshape(resolution, resolution, resolution)
+    model.train(model_training)
+    return reshaped_density
     # ======= DO NOT MODIFY CODE OUTSIDE THIS BLOCK =======
 
 
